@@ -3,6 +3,8 @@ package pasta_go
 import "C"
 import (
 	"encoding/binary"
+	"golang.org/x/crypto/sha3"
+	"math/big"
 )
 
 const KeySizePasta3 = 256
@@ -16,7 +18,6 @@ type KeyBlock []uint64
 type Block [PastaT]uint64
 
 type PastaUtil struct {
-	//shake128_ C.Keccak_HashInstance todo(fedejinich) this is not necesary
 	key_    KeyBlock
 	state1_ Block
 	state2_ Block
@@ -62,13 +63,21 @@ func (p *PastaUtil) generateRandomFieldElement(allowZero bool) uint64 {
 	var randomBytes [8]byte
 	for {
 		// todo(fedejinich) should use the equivalent shake128 for go (i guess it's in the math lib)
-		//if err := KeccakHashSqueeze(&shake128, randomBytes[:]); err != nil {
-		//	panic("SHAKE128 squeeze failed")
-		//}
+		// todo(fedejinich) another option is to use the exact same library as the other project
+		hash := sha3.NewShake128()
+		if _, err := hash.Write(randomBytes[:]); err != nil {
+			panic("couldn't initialize SHAKE128")
+		}
+		if _, err := hash.Read(randomBytes[:]); err != nil {
+			panic("SHAKE128 squeeze failed")
+		}
+
 		ele := binary.BigEndian.Uint64(randomBytes[:]) & p.maxPrimeSize
+
 		if !allowZero && ele == 0 {
 			continue
 		}
+
 		if ele < p.pastaP {
 			return ele
 		}
@@ -123,8 +132,13 @@ func (p *PastaUtil) addRc(state Block) {
 
 func (p *PastaUtil) sboxCube(state Block) { // todo(fedejinich) i think type should change into *Block
 	for i := 0; i < PastaT; i++ {
-		square := (uint128(state[i]) * state[i]) % p.pastaP
-		state[i] = uint64((uint128(square) * state[i]) % p.pastaP)
+
+		// todo(fedejinich) previously it was "square := (uint128(state[i]) * state[i]) % p.pastaP"
+		stateBig := big.NewInt(int64(state[i]))
+		square := new(big.Int).Mul(stateBig, stateBig).Uint64() % p.pastaP
+
+		// todo(fedejinich) previously it was "state[i] = uint64((uint128(square) * state[i]) % p.pastaP)"
+		state[i] = new(big.Int).Mul(big.NewInt(int64(square)), big.NewInt(int64(state[i]))).Uint64() % p.pastaP
 	}
 }
 
@@ -132,9 +146,11 @@ func (p *PastaUtil) sboxFeistel(state Block) {
 	var newState *Block
 	newState[0] = state[0]
 	for i := 1; i < PastaT; i++ {
-		square := (uint128(state[i-1]) * state[i-1]) % p.pastaP
+		// todo(fedejinich) previously "square := (uint128(state[i-1]) * state[i-1]) % p.pastaP"
+		stateBig := big.NewInt(int64(state[i-1]))
+		square := (new(big.Int).Mul(stateBig, stateBig)).Uint64() % p.pastaP
 		// ld(rasta_prime) ~ 60, no uint128_t for addition necessary
-		newState[i] = (uint64(square) + state[i]) % p.pastaP
+		newState[i] = (square + state[i]) % p.pastaP
 	}
 	state = *newState // todo(fedejinich) should i mutate the 'state' pointer? i guess so, check this
 }
@@ -160,12 +176,16 @@ func (p *PastaUtil) matmul(state Block) { // todo(fedejinich) i think type shoul
 func (p *PastaUtil) calculateRow(prevRow, firstRow []uint64) []uint64 {
 	out := make([]uint64, PastaT)
 	for j := 0; j < PastaT; j++ {
-		tmp := (uint128(firstRow[j]) * prevRow[PastaT-1]) % p.pastaP
+
+		// todo(fedejinich) previously, "tmp := (uint128(firstRow[j]) * prevRow[PastaT-1]) % p.pastaP"
+		tmp := new(big.Int).Mul(big.NewInt(int64(firstRow[j])),
+			big.NewInt(int64(prevRow[PastaT-1]))).Uint64() % p.pastaP
+
 		if j > 0 {
 			// ld(rasta_prime) ~ 60, no uint128_t for addition necessary
 			tmp = (tmp + prevRow[j-1]) % p.pastaP
 		}
-		out[j] = uint64(tmp)
+		out[j] = tmp
 	}
 	return out
 }
