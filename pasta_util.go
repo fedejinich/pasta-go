@@ -18,6 +18,8 @@ type KeyBlock []uint64
 type Block [PastaT]uint64
 
 type PastaUtil struct {
+	shake128_ sha3.ShakeHash
+
 	key_    KeyBlock
 	state1_ Block
 	state2_ Block
@@ -38,6 +40,7 @@ func NewPastaUtil(key []uint64, modulus uint64) *PastaUtil {
 	maxPrimeSize = (1 << maxPrimeSize) - 1
 
 	return &PastaUtil{
+		nil, // todo(fedejinich) improve this
 		key,
 		state1,
 		state2,
@@ -51,6 +54,20 @@ func (p *PastaUtil) Keystream(nonce uint64, blockCounter uint64) Block {
 	return p.genKeystream(nonce, blockCounter)
 }
 
+func (p *PastaUtil) InitShake(nonce, blockCounter uint64) {
+	seed := make([]byte, 16)
+
+	binary.BigEndian.PutUint64(seed[:8], nonce)
+	binary.BigEndian.PutUint64(seed[8:], blockCounter)
+
+	shake := sha3.NewShake128()
+	if _, err := shake.Write(seed); err != nil {
+		panic("SHAKE128 update failed")
+	}
+
+	p.shake128_ = shake
+}
+
 func (p *PastaUtil) GetRandomVector(allowZero bool) []uint64 {
 	rc := make([]uint64, PastaT)
 	for i := uint16(0); i < PastaT; i++ {
@@ -62,13 +79,7 @@ func (p *PastaUtil) GetRandomVector(allowZero bool) []uint64 {
 func (p *PastaUtil) generateRandomFieldElement(allowZero bool) uint64 {
 	var randomBytes [8]byte
 	for {
-		// todo(fedejinich) should use the equivalent shake128 for go (i guess it's in the math lib)
-		// todo(fedejinich) another option is to use the exact same library as the other project
-		hash := sha3.NewShake128()
-		if _, err := hash.Write(randomBytes[:]); err != nil {
-			panic("couldn't initialize SHAKE128")
-		}
-		if _, err := hash.Read(randomBytes[:]); err != nil {
+		if _, err := p.shake128_.Read(randomBytes[:]); err != nil {
 			panic("SHAKE128 squeeze failed")
 		}
 
@@ -85,7 +96,7 @@ func (p *PastaUtil) generateRandomFieldElement(allowZero bool) uint64 {
 }
 
 func (p *PastaUtil) genKeystream(nonce, blockCounter uint64) Block {
-	//p.initShake(nonce, blockCounter) // todo(fedejinich) i guess this can be removed
+	p.InitShake(nonce, blockCounter)
 
 	// init state
 	for i := 0; i < PastaT; i++ {
@@ -143,7 +154,7 @@ func (p *PastaUtil) sboxCube(state Block) { // todo(fedejinich) i think type sho
 }
 
 func (p *PastaUtil) sboxFeistel(state Block) {
-	var newState *Block
+	var newState Block
 	newState[0] = state[0]
 	for i := 1; i < PastaT; i++ {
 		// todo(fedejinich) previously "square := (uint128(state[i-1]) * state[i-1]) % p.pastaP"
@@ -152,7 +163,7 @@ func (p *PastaUtil) sboxFeistel(state Block) {
 		// ld(rasta_prime) ~ 60, no uint128_t for addition necessary
 		newState[i] = (square + state[i]) % p.pastaP
 	}
-	state = *newState // todo(fedejinich) should i mutate the 'state' pointer? i guess so, check this
+	state = newState // todo(fedejinich) should i mutate the 'state' pointer? i guess so, check this
 }
 
 func (p *PastaUtil) matmul(state Block) { // todo(fedejinich) i think type should change into *Block
