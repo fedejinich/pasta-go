@@ -49,7 +49,6 @@ func NewPastaUtil(key []uint64, modulus uint64) *PastaUtil {
 	}
 }
 
-// todo(fedejinich) i gues i can remove both params, need to check that
 func (p *PastaUtil) Keystream(nonce uint64, blockCounter uint64) Block {
 	return p.genKeystream(nonce, blockCounter)
 }
@@ -127,14 +126,14 @@ func (p *PastaUtil) round(r int) {
 }
 
 func (p *PastaUtil) linearLayer() {
-	p.matmul(p.state1_)
-	p.matmul(p.state2_)
-	p.addRc(p.state1_)
-	p.addRc(p.state2_)
+	p.matmul(&p.state1_)
+	p.matmul(&p.state2_)
+	p.addRc(&p.state1_)
+	p.addRc(&p.state2_)
 	p.mix()
 }
 
-func (p *PastaUtil) addRc(state Block) {
+func (p *PastaUtil) addRc(state *Block) {
 	for i := 0; i < PastaT; i++ {
 		// ld(rasta_prime) ~ 60, no uint128_t for addition necessary
 		state[i] = (state[i] + p.generateRandomFieldElement(true)) % p.pastaP
@@ -166,7 +165,7 @@ func (p *PastaUtil) sboxFeistel(state Block) {
 	state = newState // todo(fedejinich) should i mutate the 'state' pointer? i guess so, check this
 }
 
-func (p *PastaUtil) matmul(state Block) { // todo(fedejinich) i think type should change into *Block
+func (p *PastaUtil) matmul(state *Block) { // todo(fedejinich) i think type should change into *Block
 	newState := Block{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 
 	rand := p.GetRandomVector(false)
@@ -174,6 +173,7 @@ func (p *PastaUtil) matmul(state Block) { // todo(fedejinich) i think type shoul
 
 	for i := 0; i < PastaT; i++ {
 		for j := 0; j < PastaT; j++ {
+			// todo(fedejinich) i'm not representing as uint128
 			mult := (currRow[j] * state[j]) % p.pastaP
 			newState[i] = (newState[i] + mult) % p.pastaP
 		}
@@ -181,7 +181,7 @@ func (p *PastaUtil) matmul(state Block) { // todo(fedejinich) i think type shoul
 			currRow = p.calculateRow(currRow, rand)
 		}
 	}
-	state = newState
+	*state = newState
 }
 
 func (p *PastaUtil) calculateRow(prevRow, firstRow []uint64) []uint64 {
