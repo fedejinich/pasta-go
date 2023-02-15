@@ -117,11 +117,11 @@ func (p *PastaUtil) round(r int) {
 	p.linearLayer()
 
 	if r == PastaR-1 {
-		p.sboxCube(p.state1_)
-		p.sboxCube(p.state2_)
+		p.sboxCube(&p.state1_)
+		p.sboxCube(&p.state2_)
 	} else {
-		p.sboxFeistel(p.state1_)
-		p.sboxFeistel(p.state2_)
+		p.sboxFeistel(&p.state1_)
+		p.sboxFeistel(&p.state2_)
 	}
 }
 
@@ -140,9 +140,8 @@ func (p *PastaUtil) addRc(state *Block) {
 	}
 }
 
-func (p *PastaUtil) sboxCube(state Block) { // todo(fedejinich) i think type should change into *Block
+func (p *PastaUtil) sboxCube(state *Block) {
 	for i := 0; i < PastaT; i++ {
-
 		// todo(fedejinich) previously it was "square := (uint128(state[i]) * state[i]) % p.pastaP"
 		stateBig := big.NewInt(int64(state[i]))
 		square := new(big.Int).Mul(stateBig, stateBig).Uint64() % p.pastaP
@@ -152,7 +151,7 @@ func (p *PastaUtil) sboxCube(state Block) { // todo(fedejinich) i think type sho
 	}
 }
 
-func (p *PastaUtil) sboxFeistel(state Block) {
+func (p *PastaUtil) sboxFeistel(state *Block) {
 	var newState Block
 	newState[0] = state[0]
 	for i := 1; i < PastaT; i++ {
@@ -162,7 +161,7 @@ func (p *PastaUtil) sboxFeistel(state Block) {
 		// ld(rasta_prime) ~ 60, no uint128_t for addition necessary
 		newState[i] = (square + state[i]) % p.pastaP
 	}
-	state = newState // todo(fedejinich) should i mutate the 'state' pointer? i guess so, check this
+	*state = newState // todo(fedejinich) should i mutate the 'state' pointer? i guess so, check this
 }
 
 func (p *PastaUtil) matmul(state *Block) { // todo(fedejinich) i think type should change into *Block
