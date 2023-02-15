@@ -50,7 +50,22 @@ func NewPastaUtil(key []uint64, modulus uint64) *PastaUtil {
 }
 
 func (p *PastaUtil) Keystream(nonce uint64, blockCounter uint64) Block {
-	return p.genKeystream(nonce, blockCounter)
+	p.InitShake(nonce, blockCounter)
+
+	// init state
+	for i := 0; i < PastaT; i++ {
+		p.state1_[i] = p.key_[i]
+		p.state2_[i] = p.key_[PastaT+i]
+	}
+
+	for r := 0; r < PastaR; r++ {
+		p.round(r)
+	}
+
+	// final affine with mixing afterwards
+	p.linearLayer()
+
+	return p.state1_
 }
 
 func (p *PastaUtil) InitShake(nonce, blockCounter uint64) {
@@ -94,28 +109,12 @@ func (p *PastaUtil) generateRandomFieldElement(allowZero bool) uint64 {
 	}
 }
 
-func (p *PastaUtil) genKeystream(nonce, blockCounter uint64) Block {
-	p.InitShake(nonce, blockCounter)
-
-	// init state
-	for i := 0; i < PastaT; i++ {
-		p.state1_[i] = p.key_[i]
-		p.state2_[i] = p.key_[PastaT+i]
-	}
-
-	for r := 0; r < PastaR; r++ {
-		p.round(r)
-	}
-
-	// final affine with mixing afterwards
-	p.linearLayer()
-
-	return p.state1_
-}
-
+// The r-round Pasta construction to generate the keystream KN,i for block i under nonce N with affine layers Aj.
 func (p *PastaUtil) round(r int) {
+	// Ai
 	p.linearLayer()
 
+	// S(x) or S'(x)
 	if r == PastaR-1 {
 		p.sboxCube(&p.state1_)
 		p.sboxCube(&p.state2_)
@@ -125,46 +124,19 @@ func (p *PastaUtil) round(r int) {
 	}
 }
 
+// Aij(y) = Mij X y + cij
 func (p *PastaUtil) linearLayer() {
 	p.matmul(&p.state1_)
 	p.matmul(&p.state2_)
+
 	p.addRc(&p.state1_)
 	p.addRc(&p.state2_)
+
 	p.mix()
 }
 
-func (p *PastaUtil) addRc(state *Block) {
-	for i := 0; i < PastaT; i++ {
-		// ld(rasta_prime) ~ 60, no uint128_t for addition necessary
-		state[i] = (state[i] + p.generateRandomFieldElement(true)) % p.pastaP
-	}
-}
-
-func (p *PastaUtil) sboxCube(state *Block) {
-	for i := 0; i < PastaT; i++ {
-		// todo(fedejinich) previously it was "square := (uint128(state[i]) * state[i]) % p.pastaP"
-		stateBig := big.NewInt(int64(state[i]))
-		square := new(big.Int).Mul(stateBig, stateBig).Uint64() % p.pastaP
-
-		// todo(fedejinich) previously it was "state[i] = uint64((uint128(square) * state[i]) % p.pastaP)"
-		state[i] = new(big.Int).Mul(big.NewInt(int64(square)), big.NewInt(int64(state[i]))).Uint64() % p.pastaP
-	}
-}
-
-func (p *PastaUtil) sboxFeistel(state *Block) {
-	var newState Block
-	newState[0] = state[0]
-	for i := 1; i < PastaT; i++ {
-		// todo(fedejinich) previously "square := (uint128(state[i-1]) * state[i-1]) % p.pastaP"
-		stateBig := big.NewInt(int64(state[i-1]))
-		square := (new(big.Int).Mul(stateBig, stateBig)).Uint64() % p.pastaP
-		// ld(rasta_prime) ~ 60, no uint128_t for addition necessary
-		newState[i] = (square + state[i]) % p.pastaP
-	}
-	*state = newState // todo(fedejinich) should i mutate the 'state' pointer? i guess so, check this
-}
-
-func (p *PastaUtil) matmul(state *Block) { // todo(fedejinich) i think type should change into *Block
+// Mij X y
+func (p *PastaUtil) matmul(state *Block) {
 	newState := Block{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 
 	rand := p.GetRandomVector(false)
@@ -172,9 +144,13 @@ func (p *PastaUtil) matmul(state *Block) { // todo(fedejinich) i think type shou
 
 	for i := 0; i < PastaT; i++ {
 		for j := 0; j < PastaT; j++ {
-			// todo(fedejinich) i'm not representing as uint128
-			mult := (currRow[j] * state[j]) % p.pastaP
-			newState[i] = (newState[i] + mult) % p.pastaP
+			mult := new(big.Int).Mul(
+				big.NewInt(int64(currRow[j])),
+				big.NewInt(int64(state[j])),
+			)
+			modulus := big.NewInt(int64(p.pastaP))
+			mult.Mod(mult, modulus)
+			newState[i] = (newState[i] + mult.Uint64()) % p.pastaP
 		}
 		if i != PastaT-1 {
 			currRow = p.calculateRow(currRow, rand)
@@ -183,27 +159,96 @@ func (p *PastaUtil) matmul(state *Block) { // todo(fedejinich) i think type shou
 	*state = newState
 }
 
+// + cij
+func (p *PastaUtil) addRc(state *Block) {
+	for i := 0; i < PastaT; i++ {
+		randomFE := p.generateRandomFieldElement(true)
+
+		currentState := big.NewInt(int64(state[i]))
+		randomFEInt := big.NewInt(int64(randomFE))
+
+		modulus := big.NewInt(int64(p.pastaP))
+		currentState.Add(currentState, randomFEInt)
+		currentState.Mod(currentState, modulus)
+
+		state[i] = currentState.Uint64()
+	}
+}
+
+// [S(x)]i = (x)3
+func (p *PastaUtil) sboxCube(state *Block) {
+	for i := 0; i < PastaT; i++ {
+		currentState := big.NewInt(int64(state[i]))
+		modulus := big.NewInt(int64(p.pastaP))
+
+		square := new(big.Int).Mul(currentState, currentState)
+		square.Mod(square, modulus)
+		cube := square.Mul(square, currentState)
+
+		state[i] = cube.Mod(cube, modulus).Uint64()
+	}
+}
+
+// S'(x) = x + (rot(-1)(x) . m)^2
+func (p *PastaUtil) sboxFeistel(state *Block) {
+	pastaP := big.NewInt(int64(p.pastaP))
+	var newState Block
+	newState[0] = state[0]
+
+	for i := 1; i < PastaT; i++ {
+		stateBig := big.NewInt(int64(state[i-1]))
+
+		square := new(big.Int).Mul(stateBig, stateBig)
+		cube := square.Mod(square, pastaP)
+		cubeAdd := cube.Add(cube, big.NewInt(int64(state[i])))
+		newElem := cubeAdd.Mod(cubeAdd, pastaP)
+		
+		newState[i] = newElem.Uint64()
+	}
+
+	*state = newState
+}
+
 func (p *PastaUtil) calculateRow(prevRow, firstRow []uint64) []uint64 {
 	out := make([]uint64, PastaT)
-	for j := 0; j < PastaT; j++ {
 
-		// todo(fedejinich) previously, "tmp := (uint128(firstRow[j]) * prevRow[PastaT-1]) % p.pastaP"
-		tmp := new(big.Int).Mul(big.NewInt(int64(firstRow[j])),
-			big.NewInt(int64(prevRow[PastaT-1]))).Uint64() % p.pastaP
+	prevRowLast := big.NewInt(int64(prevRow[PastaT-1]))
+
+	for j := 0; j < PastaT; j++ {
+		firstRowVal := big.NewInt(int64(firstRow[j]))
+
+		tmp := new(big.Int).Mul(firstRowVal, prevRowLast)
+		modulus := big.NewInt(int64(p.pastaP))
+		tmp.Mod(tmp, modulus)
 
 		if j > 0 {
-			// ld(rasta_prime) ~ 60, no uint128_t for addition necessary
-			tmp = (tmp + prevRow[j-1]) % p.pastaP
+			prevRowVal := big.NewInt(int64(prevRow[j-1]))
+			tmp.Add(tmp, prevRowVal)
+			tmp.Mod(tmp, modulus)
 		}
-		out[j] = tmp
+
+		out[j] = tmp.Uint64()
 	}
+
 	return out
 }
 
 func (p *PastaUtil) mix() {
 	for i := 0; i < PastaT; i++ {
-		sum := (p.state1_[i] + p.state2_[i]) % p.pastaP
-		p.state1_[i] = (p.state1_[i] + sum) % p.pastaP
-		p.state2_[i] = (p.state2_[i] + sum) % p.pastaP
+		pastaP := big.NewInt(int64(p.pastaP))
+		state1 := big.NewInt(int64(p.state1_[i]))
+		state2 := big.NewInt(int64(p.state2_[i]))
+
+		sum := new(big.Int).Add(state1, state2)
+		sum = sum.Mod(sum, pastaP)
+
+		sum1 := new(big.Int).Add(state1, sum)
+		sum1 = sum1.Mod(sum1, pastaP)
+
+		sum2 := new(big.Int).Add(state2, sum)
+		sum2 = sum2.Mod(sum2, pastaP)
+
+		p.state1_[i] = sum1.Uint64()
+		p.state2_[i] = sum2.Uint64()
 	}
 }
