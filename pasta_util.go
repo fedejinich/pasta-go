@@ -7,29 +7,24 @@ import (
 	"math/big"
 )
 
-const KeySizePasta3 = 256
-const PlainSizePasta3 = 128
-const CipherSizePasta3 = 128
+const PastaT = PlaintextSize // plain text size
 
-const PastaT = PlainSizePasta3 // plain text size
-const PastaR = 3               // number of rounds
-
-type KeyBlock []uint64
+type SecretKey []uint64
 type Block [PastaT]uint64
 
 type PastaUtil struct {
 	shake128_ sha3.ShakeHash
 
-	key_    KeyBlock
-	state1_ Block
-	state2_ Block
+	secretKey_       SecretKey
+	state1_, state2_ Block
 
-	maxPrimeSize uint64
-	pastaP       uint64
+	maxPrimeSize, modulus uint64
+
+	rounds int
 }
 
-func NewPastaUtil(key []uint64, modulus uint64) *PastaUtil {
-	var state1, state2 [128]uint64
+func NewPastaUtil(secretKey []uint64, modulus uint64, rounds int) *PastaUtil {
+	var state1, state2 [PastaT]uint64
 
 	p := modulus
 	maxPrimeSize := uint64(0)
@@ -40,25 +35,26 @@ func NewPastaUtil(key []uint64, modulus uint64) *PastaUtil {
 	maxPrimeSize = (1 << maxPrimeSize) - 1
 
 	return &PastaUtil{
-		nil, // todo(fedejinich) improve this
-		key,
+		nil,
+		secretKey,
 		state1,
 		state2,
 		maxPrimeSize,
 		modulus,
+		rounds,
 	}
 }
 
 func (p *PastaUtil) Keystream(nonce uint64, blockCounter uint64) Block {
-	p.InitShake(nonce, blockCounter)
+	p.initShake(nonce, blockCounter)
 
 	// init state
 	for i := 0; i < PastaT; i++ {
-		p.state1_[i] = p.key_[i]
-		p.state2_[i] = p.key_[PastaT+i]
+		p.state1_[i] = p.secretKey_[i]
+		p.state2_[i] = p.secretKey_[PastaT+i]
 	}
 
-	for r := 0; r < PastaR; r++ {
+	for r := 0; r < p.rounds; r++ {
 		p.round(r)
 	}
 
@@ -68,7 +64,7 @@ func (p *PastaUtil) Keystream(nonce uint64, blockCounter uint64) Block {
 	return p.state1_
 }
 
-func (p *PastaUtil) InitShake(nonce, blockCounter uint64) {
+func (p *PastaUtil) initShake(nonce, blockCounter uint64) {
 	seed := make([]byte, 16)
 
 	binary.BigEndian.PutUint64(seed[:8], nonce)
@@ -82,9 +78,9 @@ func (p *PastaUtil) InitShake(nonce, blockCounter uint64) {
 	p.shake128_ = shake
 }
 
-func (p *PastaUtil) GetRandomVector(allowZero bool) []uint64 {
+func (p *PastaUtil) getRandomVector(allowZero bool) []uint64 {
 	rc := make([]uint64, PastaT)
-	for i := uint16(0); i < PastaT; i++ {
+	for i := uint16(0); i < uint16(PastaT); i++ {
 		rc[i] = p.generateRandomFieldElement(allowZero)
 	}
 	return rc
@@ -103,7 +99,7 @@ func (p *PastaUtil) generateRandomFieldElement(allowZero bool) uint64 {
 			continue
 		}
 
-		if ele < p.pastaP {
+		if ele < p.modulus {
 			return ele
 		}
 	}
@@ -115,7 +111,7 @@ func (p *PastaUtil) round(r int) {
 	p.linearLayer()
 
 	// S(x) or S'(x)
-	if r == PastaR-1 {
+	if r == int(p.rounds)-1 {
 		p.sboxCube(&p.state1_)
 		p.sboxCube(&p.state2_)
 	} else {
@@ -139,7 +135,7 @@ func (p *PastaUtil) linearLayer() {
 func (p *PastaUtil) matmul(state *Block) {
 	newState := Block{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 
-	rand := p.GetRandomVector(false)
+	rand := p.getRandomVector(false)
 	currRow := rand
 
 	for i := 0; i < PastaT; i++ {
@@ -148,9 +144,9 @@ func (p *PastaUtil) matmul(state *Block) {
 				big.NewInt(int64(currRow[j])),
 				big.NewInt(int64(state[j])),
 			)
-			modulus := big.NewInt(int64(p.pastaP))
+			modulus := big.NewInt(int64(p.modulus))
 			mult.Mod(mult, modulus)
-			newState[i] = (newState[i] + mult.Uint64()) % p.pastaP
+			newState[i] = (newState[i] + mult.Uint64()) % p.modulus
 		}
 		if i != PastaT-1 {
 			currRow = p.calculateRow(currRow, rand)
@@ -167,7 +163,7 @@ func (p *PastaUtil) addRc(state *Block) {
 		currentState := big.NewInt(int64(state[i]))
 		randomFEInt := big.NewInt(int64(randomFE))
 
-		modulus := big.NewInt(int64(p.pastaP))
+		modulus := big.NewInt(int64(p.modulus))
 		currentState.Add(currentState, randomFEInt)
 		currentState.Mod(currentState, modulus)
 
@@ -179,7 +175,7 @@ func (p *PastaUtil) addRc(state *Block) {
 func (p *PastaUtil) sboxCube(state *Block) {
 	for i := 0; i < PastaT; i++ {
 		currentState := big.NewInt(int64(state[i]))
-		modulus := big.NewInt(int64(p.pastaP))
+		modulus := big.NewInt(int64(p.modulus))
 
 		square := new(big.Int).Mul(currentState, currentState)
 		square.Mod(square, modulus)
@@ -191,7 +187,7 @@ func (p *PastaUtil) sboxCube(state *Block) {
 
 // S'(x) = x + (rot(-1)(x) . m)^2
 func (p *PastaUtil) sboxFeistel(state *Block) {
-	pastaP := big.NewInt(int64(p.pastaP))
+	pastaP := big.NewInt(int64(p.modulus))
 	var newState Block
 	newState[0] = state[0]
 
@@ -202,7 +198,7 @@ func (p *PastaUtil) sboxFeistel(state *Block) {
 		cube := square.Mod(square, pastaP)
 		cubeAdd := cube.Add(cube, big.NewInt(int64(state[i])))
 		newElem := cubeAdd.Mod(cubeAdd, pastaP)
-		
+
 		newState[i] = newElem.Uint64()
 	}
 
@@ -218,7 +214,7 @@ func (p *PastaUtil) calculateRow(prevRow, firstRow []uint64) []uint64 {
 		firstRowVal := big.NewInt(int64(firstRow[j]))
 
 		tmp := new(big.Int).Mul(firstRowVal, prevRowLast)
-		modulus := big.NewInt(int64(p.pastaP))
+		modulus := big.NewInt(int64(p.modulus))
 		tmp.Mod(tmp, modulus)
 
 		if j > 0 {
@@ -235,7 +231,7 @@ func (p *PastaUtil) calculateRow(prevRow, firstRow []uint64) []uint64 {
 
 func (p *PastaUtil) mix() {
 	for i := 0; i < PastaT; i++ {
-		pastaP := big.NewInt(int64(p.pastaP))
+		pastaP := big.NewInt(int64(p.modulus))
 		state1 := big.NewInt(int64(p.state1_[i]))
 		state2 := big.NewInt(int64(p.state2_[i]))
 

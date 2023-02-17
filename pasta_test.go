@@ -6,8 +6,10 @@ import (
 	"testing"
 )
 
-const NUM_MATMULS_SQUARES = 3
-const LAST_SQUARE = false
+const NumMatmulsSquares = 3
+const LastSquare = false
+
+var TestParams = CipherParams{SecretKeySize, PlaintextSize, CiphertextSize, 3}
 
 func TestBasicEncryptionDecryption(t *testing.T) {
 	secretKey := []uint64{
@@ -51,13 +53,7 @@ func TestBasicEncryptionDecryption(t *testing.T) {
 	plaintext := []uint64{1, 2, 3}
 	modulus := 7
 
-	pasta3 := NewPasta3(secretKey, uint64(modulus))
-	ciphertext := pasta3.Encrypt(plaintext)
-	decrypted := pasta3.Decrypt(ciphertext)
-
-	if !equalSlices(decrypted, plaintext) {
-		t.Error("different plaintexts")
-	}
+	testCaseEncryptDecrypt(t, secretKey, plaintext, []uint64{4, 5, 2}, uint64(modulus))
 }
 
 func TestDecrypt1(t *testing.T) {
@@ -138,7 +134,7 @@ func TestDecrypt1(t *testing.T) {
 		0x07a04, 0x02e7b}
 	modulus := 65537
 
-	testCaseDecrypt(t, secretKey, plaintext, expectedCiphertext, uint64(modulus))
+	testCaseEncryptDecrypt(t, secretKey, plaintext, expectedCiphertext, uint64(modulus))
 }
 
 func TestDecrypt2(t *testing.T) {
@@ -248,7 +244,7 @@ func TestDecrypt2(t *testing.T) {
 		0x00e62d01a, 0x14fb2137e, 0x0a9c2c126}
 	modulus := 8088322049
 
-	testCaseDecrypt(t, secretKey, plaintext, expectedCiphertext, uint64(modulus))
+	testCaseEncryptDecrypt(t, secretKey, plaintext, expectedCiphertext, uint64(modulus))
 }
 
 func TestDecrypt3(t *testing.T) {
@@ -426,11 +422,11 @@ func TestDecrypt3(t *testing.T) {
 		0x4070a4bf3a6f7e8, 0xb96c6f87591abae}
 	modulus := 1096486890805657601
 
-	testCaseDecrypt(t, secretKey, plaintext, expectedCiphertext, uint64(modulus))
+	testCaseEncryptDecrypt(t, secretKey, plaintext, expectedCiphertext, uint64(modulus))
 }
 
-func testCaseDecrypt(t *testing.T, secretKey, plaintext, expectedCiphertext []uint64, modulus uint64) {
-	pasta3 := NewPasta3(secretKey, modulus)
+func testCaseEncryptDecrypt(t *testing.T, secretKey, plaintext, expectedCiphertext []uint64, modulus uint64) {
+	pasta3 := NewPasta(secretKey, modulus, TestParams)
 
 	ciphertext := pasta3.Encrypt(plaintext)
 	decrypted := pasta3.Decrypt(expectedCiphertext)
@@ -644,8 +640,8 @@ func TestUseCase3(t *testing.T) {
 
 func testCaseUseCase(t *testing.T, secretKey []uint64, modulus, matrixSize uint64) {
 	// random matrices
-	m := make([][][]uint64, NUM_MATMULS_SQUARES)
-	for r := 0; r < NUM_MATMULS_SQUARES; r++ {
+	m := make([][][]uint64, NumMatmulsSquares)
+	for r := 0; r < NumMatmulsSquares; r++ {
 		m[r] = make([][]uint64, matrixSize)
 		for i := 0; i < int(matrixSize); i++ {
 			m[r][i] = make([]uint64, matrixSize)
@@ -656,8 +652,8 @@ func testCaseUseCase(t *testing.T, secretKey []uint64, modulus, matrixSize uint6
 	}
 
 	// random biases
-	b := make([][]uint64, NUM_MATMULS_SQUARES)
-	for r := 0; r < NUM_MATMULS_SQUARES; r++ {
+	b := make([][]uint64, NumMatmulsSquares)
+	for r := 0; r < NumMatmulsSquares; r++ {
 		b[r] = make([]uint64, matrixSize)
 		for i := 0; i < int(matrixSize); i++ {
 			b[r][i] = rand.Uint64() % modulus
@@ -673,20 +669,20 @@ func testCaseUseCase(t *testing.T, secretKey []uint64, modulus, matrixSize uint6
 	var vo, voP, viTmp []uint64
 	viTmp = make([]uint64, matrixSize)
 	copy(viTmp, vi)
-	for r := 0; r < NUM_MATMULS_SQUARES; r++ {
+	for r := 0; r < NumMatmulsSquares; r++ {
 		affine(&vo, m[r], &viTmp, b[r], modulus)
-		if !LAST_SQUARE && r != NUM_MATMULS_SQUARES-1 {
+		if !LastSquare && r != NumMatmulsSquares-1 {
 			square(&viTmp, vo, modulus)
 		}
 	}
 
-	pasta := NewPasta3(secretKey, modulus)
+	pasta := NewPasta(secretKey, modulus, TestParams)
 	ciphertext := pasta.Encrypt(vi)
 	plain := pasta.Decrypt(ciphertext)
 
-	for r := 0; r < NUM_MATMULS_SQUARES; r++ {
+	for r := 0; r < NumMatmulsSquares; r++ {
 		affine(&voP, m[r], &plain, b[r], modulus)
-		if !LAST_SQUARE && r != NUM_MATMULS_SQUARES-1 {
+		if !LastSquare && r != NumMatmulsSquares-1 {
 			square(&plain, voP, modulus)
 		}
 	}
