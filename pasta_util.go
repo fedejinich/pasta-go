@@ -3,8 +3,9 @@ package pasta_go
 import "C"
 import (
 	"encoding/binary"
-	"golang.org/x/crypto/sha3"
 	"math/big"
+
+	"golang.org/x/crypto/sha3"
 )
 
 const PastaT = PlaintextSize // plain text size
@@ -133,7 +134,7 @@ func (p *PastaUtil) linearLayer() {
 
 // Mij X y
 func (p *PastaUtil) matmul(state *Block) {
-	newState := Block{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+	var newState Block
 
 	rand := p.getRandomVector(false)
 	currRow := rand
