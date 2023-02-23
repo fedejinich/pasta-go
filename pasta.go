@@ -1,4 +1,4 @@
-package pasta_go
+package pasta
 
 import (
 	"math"
@@ -21,14 +21,14 @@ type Pasta struct {
 	CipherParams CipherParams
 }
 
-func NewPasta(secretKey []uint64, modulus uint64, cipherParams CipherParams) *Pasta {
+func NewPasta(secretKey []uint64, modulus uint64, cipherParams CipherParams) Pasta {
 	pasta3 := Pasta{
 		secretKey,
 		modulus,
 		cipherParams,
 	}
 
-	return &pasta3
+	return pasta3
 }
 
 func (p *Pasta) Encrypt(plaintext []uint64) []uint64 {

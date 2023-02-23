@@ -1,4 +1,4 @@
-package pasta_go
+package pasta
 
 import "C"
 import (
