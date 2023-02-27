@@ -8,7 +8,7 @@ const SecretKeySize = 256
 const PlaintextSize = 128
 const CiphertextSize = 128
 
-type CipherParams struct {
+type Params struct {
 	SecretKeySize uint64
 	PlainSize     uint64
 	CipherSize    uint64
@@ -18,17 +18,17 @@ type CipherParams struct {
 type Pasta struct {
 	SecretKey    SecretKey
 	Modulus      uint64
-	CipherParams CipherParams
+	CipherParams Params
 }
 
-func NewPasta(secretKey []uint64, modulus uint64, cipherParams CipherParams) Pasta {
-	pasta3 := Pasta{
+func NewPasta(secretKey []uint64, modulus uint64, cipherParams Params) Pasta {
+	pasta := Pasta{
 		secretKey,
 		modulus,
 		cipherParams,
 	}
 
-	return pasta3
+	return pasta
 }
 
 func (p *Pasta) Encrypt(plaintext []uint64) []uint64 {

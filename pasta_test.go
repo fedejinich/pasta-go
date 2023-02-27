@@ -9,7 +9,7 @@ import (
 const NumMatmulsSquares = 3
 const LastSquare = false
 
-var TestParams = CipherParams{SecretKeySize, PlaintextSize, CiphertextSize, 3}
+var TestParams = Params{SecretKeySize, PlaintextSize, CiphertextSize, 3}
 
 func TestBasicEncryptionDecryption(t *testing.T) {
 	secretKey := []uint64{
