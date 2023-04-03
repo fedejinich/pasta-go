@@ -24,7 +24,7 @@ type PastaUtil struct {
 	rounds int
 }
 
-func NewPastaUtil(secretKey []uint64, modulus uint64, rounds int) *PastaUtil {
+func NewPastaUtil(secretKey []uint64, modulus uint64, rounds int) PastaUtil {
 	var state1, state2 [PastaT]uint64
 
 	p := modulus
@@ -35,7 +35,7 @@ func NewPastaUtil(secretKey []uint64, modulus uint64, rounds int) *PastaUtil {
 	}
 	maxPrimeSize = (1 << maxPrimeSize) - 1
 
-	return &PastaUtil{
+	return PastaUtil{
 		nil,
 		secretKey,
 		state1,
