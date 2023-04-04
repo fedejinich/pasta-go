@@ -27,11 +27,10 @@ type PastaUtil struct {
 func NewPastaUtil(secretKey []uint64, modulus uint64, rounds int) PastaUtil {
 	var state1, state2 [PastaT]uint64
 
-	p := modulus
 	maxPrimeSize := uint64(0)
-	for p > 0 {
+	for modulus > 0 {
 		maxPrimeSize++
-		p >>= 1
+		modulus >>= 1
 	}
 	maxPrimeSize = (1 << maxPrimeSize) - 1
 
@@ -47,7 +46,7 @@ func NewPastaUtil(secretKey []uint64, modulus uint64, rounds int) PastaUtil {
 }
 
 func (p *PastaUtil) Keystream(nonce uint64, blockCounter uint64) Block {
-	p.initShake(nonce, blockCounter)
+	p.InitShake(nonce, blockCounter)
 
 	// init state
 	for i := 0; i < PastaT; i++ {
@@ -65,7 +64,7 @@ func (p *PastaUtil) Keystream(nonce uint64, blockCounter uint64) Block {
 	return p.state1_
 }
 
-func (p *PastaUtil) initShake(nonce, blockCounter uint64) {
+func (p *PastaUtil) InitShake(nonce, blockCounter uint64) {
 	seed := make([]byte, 16)
 
 	binary.BigEndian.PutUint64(seed[:8], nonce)
@@ -77,6 +76,28 @@ func (p *PastaUtil) initShake(nonce, blockCounter uint64) {
 	}
 
 	p.shake128_ = shake
+}
+
+// todo(fedejinich) review this
+func (p *PastaUtil) RandomMatrix() [][]uint64 {
+	mat := make([][]uint64, PastaT)
+	mat[0] = p.getRandomVector(false)
+	for i := uint64(1); i < PastaT; i++ {
+		mat[i] = p.calculateRow(mat[i-1], mat[0])
+	}
+	return mat
+}
+
+// todo(fedejinich) review this
+func (p *PastaUtil) RCVec(vecSize int) []uint64 {
+	rc := make([]uint64, vecSize+PastaT)
+	for i := 0; i < PastaT; i++ {
+		rc[i] = p.generateRandomFieldElement(false)
+	}
+	for i := vecSize; i < vecSize+PastaT; i++ {
+		rc[i] = p.generateRandomFieldElement(false)
+	}
+	return rc
 }
 
 func (p *PastaUtil) getRandomVector(allowZero bool) []uint64 {
