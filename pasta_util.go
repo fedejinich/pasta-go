@@ -3,6 +3,7 @@ package pasta
 import "C"
 import (
 	"encoding/binary"
+	"fmt"
 	"math/big"
 
 	"golang.org/x/crypto/sha3"
@@ -26,11 +27,13 @@ type PastaUtil struct {
 
 func NewPastaUtil(secretKey []uint64, modulus uint64, rounds int) PastaUtil {
 	var state1, state2 [PastaT]uint64
+	p := modulus
 
 	maxPrimeSize := uint64(0)
-	for modulus > 0 {
+	for p > 0 {
 		maxPrimeSize++
-		modulus >>= 1
+		p >>= 1
+		fmt.Println(p)
 	}
 	maxPrimeSize = (1 << maxPrimeSize) - 1
 
@@ -78,18 +81,16 @@ func (p *PastaUtil) InitShake(nonce, blockCounter uint64) {
 	p.shake128_ = shake
 }
 
-// todo(fedejinich) review this
 func (p *PastaUtil) RandomMatrix() [][]uint64 {
 	mat := make([][]uint64, PastaT)
 	mat[0] = p.getRandomVector(false)
 	for i := uint64(1); i < PastaT; i++ {
-		mat[i] = p.calculateRow(mat[i-1], mat[0])
+		mat[i] = p.calculateRow(mat[i-1], mat[0]) // todo(fedejinich) this might be changed for calculateColumn
 	}
 	return mat
 }
 
-// todo(fedejinich) review this
-func (p *PastaUtil) RCVec(vecSize int) []uint64 {
+func (p *PastaUtil) RCVec(vecSize uint64) []uint64 {
 	rc := make([]uint64, vecSize+PastaT)
 	for i := 0; i < PastaT; i++ {
 		rc[i] = p.generateRandomFieldElement(false)
@@ -171,7 +172,7 @@ func (p *PastaUtil) matmul(state *Block) {
 			newState[i] = (newState[i] + mult.Uint64()) % p.modulus
 		}
 		if i != PastaT-1 {
-			currRow = p.calculateRow(currRow, rand)
+			currRow = p.calculateRow(currRow, rand) // todo(fedejinich) if rows are columns, is this ok?
 		}
 	}
 	*state = newState
